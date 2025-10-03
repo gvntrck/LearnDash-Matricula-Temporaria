@@ -3,7 +3,7 @@
  * Plugin Name: LearnDash Matrícula Temporária
  * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash
  * Version: 1.6.1
- * Author: Custom Development
+ * Author: Giovani Tureck
  */
 
 if (!defined('ABSPATH')) {
