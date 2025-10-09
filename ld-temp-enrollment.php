@@ -2,8 +2,11 @@
 /**
  * Plugin Name: LearnDash Matrícula Temporária
  * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash
- * Version: 1.6.1
- * Author: Giovani Tureck
+ * Version: 1.6.2
+ * Author: Gvntrck
+ * Author URI: https://github.com/gvntrck
+ * License: GPL v2 or later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  */
 
 if (!defined('ABSPATH')) {
