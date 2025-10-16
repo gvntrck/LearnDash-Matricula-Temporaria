@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LearnDash Matrícula Temporária
  * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash
- * Version: 1.6.2
+ * Version: 1.6.3
  * Author: Gvntrck
  * Author URI: https://github.com/gvntrck
  * License: GPL v2 or later
@@ -397,7 +397,7 @@ class LearnDash_Temporary_Enrollment {
         <div class="ld-temp-enrollment-form-wrapper">
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
             
-            <div class="card shadow-sm">
+            <div class="">
                 <div class="card-header bg-primary text-white">
                     <h5 class="mb-0"><i class="bi bi-person-plus"></i> Matrícula Temporária em Lote</h5>
                 </div>
