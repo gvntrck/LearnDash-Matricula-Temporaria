@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LearnDash Matrícula Temporária
  * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash
- * Version: 1.6.3
+ * Version: 1.6.4
  * Author: Gvntrck
  * Author URI: https://github.com/gvntrck
  * License: GPL v2 or later
@@ -432,20 +432,27 @@ class LearnDash_Temporary_Enrollment {
                         </div>
                         
                         <div class="row">
-                            <div class="col-md-6 mb-3">
+                            <div class="col-md-4 mb-3">
+                                <label for="expiration_date" class="form-label">Data de Expiração</label>
+                                <input type="text" name="expiration_date" id="expiration_date" class="form-control" 
+                                       placeholder="dd/mm/aaaa" maxlength="10">
+                                <div class="form-text">Preencha a data ou use os dias abaixo</div>
+                            </div>
+                            
+                            <div class="col-md-4 mb-3">
                                 <label for="duration_days" class="form-label">Duração (dias) *</label>
                                 <input type="number" name="duration_days" id="duration_days" class="form-control" 
                                        value="1" min="1" max="365" required>
                                 <div class="form-text">Máximo: 365 dias (1 ano)</div>
                             </div>
                             
-                            <div class="col-md-6 mb-3">
+                            <div class="col-md-4 mb-3">
                                 <label class="form-label">Atalhos de Duração</label>
-                                <div class="btn-group d-flex" role="group">
-                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('duration_days').value=1">1 dia</button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('duration_days').value=7">7 dias</button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('duration_days').value=15">15 dias</button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('duration_days').value=30">30 dias</button>
+                                <div class="btn-group d-flex flex-wrap" role="group">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="1">1 dia</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="7">7 dias</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="15">15 dias</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="30">30 dias</button>
                                 </div>
                             </div>
                         </div>
@@ -463,6 +470,90 @@ class LearnDash_Temporary_Enrollment {
             
             <script>
             jQuery(document).ready(function($) {
+                // Máscara para campo de data dd/mm/aaaa
+                $('#expiration_date').on('input', function(e) {
+                    var value = $(this).val().replace(/\D/g, '');
+                    var formatted = '';
+                    
+                    if (value.length > 0) {
+                        formatted = value.substring(0, 2);
+                    }
+                    if (value.length > 2) {
+                        formatted += '/' + value.substring(2, 4);
+                    }
+                    if (value.length > 4) {
+                        formatted += '/' + value.substring(4, 8);
+                    }
+                    
+                    $(this).val(formatted);
+                    
+                    // Calcula dias quando a data está completa
+                    if (formatted.length === 10) {
+                        calculateDaysFromDate(formatted);
+                    }
+                });
+                
+                // Função para calcular dias a partir da data
+                function calculateDaysFromDate(dateStr) {
+                    var parts = dateStr.split('/');
+                    if (parts.length !== 3) return;
+                    
+                    var day = parseInt(parts[0], 10);
+                    var month = parseInt(parts[1], 10) - 1; // Mês começa em 0
+                    var year = parseInt(parts[2], 10);
+                    
+                    // Valida data
+                    if (isNaN(day) || isNaN(month) || isNaN(year)) return;
+                    if (day < 1 || day > 31 || month < 0 || month > 11 || year < 2020) return;
+                    
+                    var expirationDate = new Date(year, month, day, 23, 59, 59);
+                    var today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                    var diffTime = expirationDate - today;
+                    var diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                    
+                    if (diffDays >= 1 && diffDays <= 365) {
+                        $('#duration_days').val(diffDays);
+                    } else if (diffDays < 1) {
+                        alert('A data de expiração deve ser futura!');
+                        $('#expiration_date').val('');
+                    } else if (diffDays > 365) {
+                        alert('A data de expiração não pode ser maior que 365 dias!');
+                        $('#expiration_date').val('');
+                    }
+                }
+                
+                // Função para calcular data a partir dos dias
+                function calculateDateFromDays(days) {
+                    var today = new Date();
+                    var expirationDate = new Date(today.getTime() + (days * 24 * 60 * 60 * 1000));
+                    
+                    var day = String(expirationDate.getDate()).padStart(2, '0');
+                    var month = String(expirationDate.getMonth() + 1).padStart(2, '0');
+                    var year = expirationDate.getFullYear();
+                    
+                    return day + '/' + month + '/' + year;
+                }
+                
+                // Atualiza data quando dias mudam
+                $('#duration_days').on('change input', function() {
+                    var days = parseInt($(this).val(), 10);
+                    if (days >= 1 && days <= 365) {
+                        $('#expiration_date').val(calculateDateFromDays(days));
+                    }
+                });
+                
+                // Botões de atalho de duração
+                $('.ld-duration-btn').on('click', function() {
+                    var days = $(this).data('days');
+                    $('#duration_days').val(days);
+                    $('#expiration_date').val(calculateDateFromDays(days));
+                });
+                
+                // Inicializa com 1 dia
+                $('#expiration_date').val(calculateDateFromDays(1));
+                
                 $('#ld-temp-enrollment-form').on('submit', function(e) {
                     e.preventDefault();
                     
