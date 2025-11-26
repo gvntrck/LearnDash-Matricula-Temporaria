@@ -1,8 +1,8 @@
 <?php
 /**
  * Plugin Name: LearnDash Matrícula Temporária
- * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash
- * Version: 1.6.4
+ * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash. Requer configuração de WP-Cron com hook 'ld_temp_check_expirations' (recomendado: hourly) para funcionamento da desmatrícula automática.
+ * Version: 1.6.5
  * Author: Gvntrck
  * Author URI: https://github.com/gvntrck
  * License: GPL v2 or later
