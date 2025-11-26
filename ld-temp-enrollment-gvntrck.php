@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LearnDash Matrícula Temporária
  * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash. Requer configuração de WP-Cron com hook 'ld_temp_check_expirations' (recomendado: hourly) para funcionamento da desmatrícula automática.
- * Version: 1.6.5
+ * Version: 1.6.6
  * Author: Gvntrck
  * Author URI: https://github.com/gvntrck
  * License: GPL v2 or later
@@ -21,6 +21,9 @@ class LearnDash_Temporary_Enrollment {
         global $wpdb;
         $this->table_name = $wpdb->prefix . 'ld_temp_enrollments';
         
+        // Cria tabela apenas na ativação do plugin (performance)
+        register_activation_hook(__FILE__, array($this, 'activate_plugin'));
+        
         add_action('init', array($this, 'init'));
         add_action('admin_menu', array($this, 'add_admin_menu'), 20);
         add_action('ld_temp_check_expirations', array($this, 'check_expirations'));
@@ -31,10 +34,32 @@ class LearnDash_Temporary_Enrollment {
     }
     
     /**
+     * Ativação do plugin - cria tabela no banco
+     */
+    public function activate_plugin() {
+        $this->create_database_table();
+    }
+    
+    /**
      * Inicialização do plugin
      */
     public function init() {
-        $this->create_database_table();
+        // Verifica se tabela existe, se não, cria (fallback para atualizações)
+        if (!$this->table_exists()) {
+            $this->create_database_table();
+        }
+    }
+    
+    /**
+     * Verifica se a tabela existe no banco
+     */
+    private function table_exists() {
+        global $wpdb;
+        $table = $wpdb->get_var($wpdb->prepare(
+            "SHOW TABLES LIKE %s",
+            $this->table_name
+        ));
+        return $table === $this->table_name;
     }
     
     /**
@@ -225,8 +250,10 @@ class LearnDash_Temporary_Enrollment {
             return false;
         }
         
-        // Remove acesso ao curso no LearnDash
-        ld_update_course_access($enrollment->user_id, $enrollment->course_id, true);
+        // Verifica se LearnDash está ativo antes de remover acesso
+        if (function_exists('ld_update_course_access')) {
+            ld_update_course_access($enrollment->user_id, $enrollment->course_id, true);
+        }
         
         // Atualiza status
         $wpdb->update(
@@ -387,6 +414,7 @@ class LearnDash_Temporary_Enrollment {
         
         $courses = get_posts(array(
             'post_type' => 'sfwd-courses',
+            'post_status' => 'publish',
             'posts_per_page' => -1,
             'orderby' => 'title',
             'order' => 'ASC'
