@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LearnDash Matrícula Temporária
  * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash. Requer configuração de WP-Cron com hook 'ld_temp_check_expirations' (recomendado: hourly) para funcionamento da desmatrícula automática.
- * Version: 1.6.6
+ * Version: 1.6.7
  * Author: Gvntrck
  * Author URI: https://github.com/gvntrck
  * License: GPL v2 or later
@@ -47,6 +47,25 @@ class LearnDash_Temporary_Enrollment {
         // Verifica se tabela existe, se não, cria (fallback para atualizações)
         if (!$this->table_exists()) {
             $this->create_database_table();
+        }
+        
+        // Adiciona coluna observation se não existir (migração)
+        $this->maybe_add_observation_column();
+    }
+    
+    /**
+     * Adiciona coluna observation se não existir (migração para versões antigas)
+     */
+    private function maybe_add_observation_column() {
+        global $wpdb;
+        
+        $column_exists = $wpdb->get_results($wpdb->prepare(
+            "SHOW COLUMNS FROM {$this->table_name} LIKE %s",
+            'observation'
+        ));
+        
+        if (empty($column_exists)) {
+            $wpdb->query("ALTER TABLE {$this->table_name} ADD COLUMN observation text DEFAULT NULL");
         }
     }
     
@@ -143,6 +162,7 @@ class LearnDash_Temporary_Enrollment {
             expiration_date datetime NOT NULL,
             enrolled_date datetime DEFAULT CURRENT_TIMESTAMP,
             status varchar(20) DEFAULT 'active',
+            observation text DEFAULT NULL,
             PRIMARY KEY (id),
             KEY user_id (user_id),
             KEY course_id (course_id),
@@ -161,9 +181,10 @@ class LearnDash_Temporary_Enrollment {
      * @param int $user_id ID do usuário
      * @param int $course_id ID do curso
      * @param int $duration_days Duração em dias
+     * @param string $observation Observação do lote de matrícula
      * @return bool|int ID do registro ou false em caso de erro
      */
-    public function enroll_user_temporarily($user_id, $course_id, $duration_days = 1) {
+    public function enroll_user_temporarily($user_id, $course_id, $duration_days = 1, $observation = '') {
         global $wpdb;
         
         // Validação de parâmetros
@@ -220,9 +241,10 @@ class LearnDash_Temporary_Enrollment {
                 'course_id' => $course_id,
                 'expiration_date' => $expiration_date,
                 'enrolled_date' => $current_date,
-                'status' => 'active'
+                'status' => 'active',
+                'observation' => sanitize_textarea_field($observation)
             ),
-            array('%d', '%d', '%s', '%s', '%s')
+            array('%d', '%d', '%s', '%s', '%s', '%s')
         );
         
         if ($inserted) {
@@ -309,6 +331,7 @@ class LearnDash_Temporary_Enrollment {
         $user_emails = isset($_POST['user_emails']) ? sanitize_textarea_field($_POST['user_emails']) : '';
         $course_id = intval($_POST['course_id']);
         $duration_days = intval($_POST['duration_days']);
+        $observation = isset($_POST['observation']) ? sanitize_textarea_field($_POST['observation']) : '';
         
         // Validação server-side
         if ($duration_days < 1 || $duration_days > 365) {
@@ -347,8 +370,8 @@ class LearnDash_Temporary_Enrollment {
                 continue;
             }
             
-            // Matricula o usuário
-            $result = $this->enroll_user_temporarily($user->ID, $course_id, $duration_days);
+            // Matricula o usuário (observação é replicada para todos do lote)
+            $result = $this->enroll_user_temporarily($user->ID, $course_id, $duration_days, $observation);
             
             // Verifica se foi sucesso (número inteiro positivo)
             if (is_int($result) && $result > 0) {
@@ -485,6 +508,17 @@ class LearnDash_Temporary_Enrollment {
                             </div>
                         </div>
                         
+                        <div class="row">
+                            <div class="col-12 mb-3">
+                                <label for="observation" class="form-label">Observação do Lote</label>
+                                <textarea name="observation" id="observation" class="form-control" rows="4" 
+                                          placeholder="Digite aqui observações sobre este lote de matrículas (opcional). Esta observação será aplicada a todos os emails cadastrados."></textarea>
+                                <div class="form-text">
+                                    <i class="bi bi-info-circle"></i> Esta observação será replicada para todas as matrículas deste lote.
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div class="d-grid gap-2">
                             <button type="submit" class="btn btn-primary btn-lg">
                                 <i class="bi bi-check-circle"></i> Matricular Temporariamente
@@ -600,7 +634,8 @@ class LearnDash_Temporary_Enrollment {
                             nonce: '<?php echo wp_create_nonce('ld_temp_enroll_nonce'); ?>',
                             user_emails: $('#user_emails').val(),
                             course_id: $('#course_id').val(),
-                            duration_days: $('#duration_days').val()
+                            duration_days: $('#duration_days').val(),
+                            observation: $('#observation').val()
                         },
                         success: function(response) {
                             if (response.success) {
@@ -713,6 +748,7 @@ class LearnDash_Temporary_Enrollment {
                             <th>Data de Matrícula</th>
                             <th>Data de Expiração</th>
                             <th>Tempo Restante</th>
+                            <th>Observação</th>
                             <th>Status</th>
                             <?php if ($show_actions): ?>
                                 <th class="text-center">Ações</th>
@@ -722,7 +758,7 @@ class LearnDash_Temporary_Enrollment {
                     <tbody>
                         <?php if (empty($enrollments)): ?>
                             <tr>
-                                <td colspan="<?php echo $show_actions ? '8' : '7'; ?>" class="text-center py-4">
+                                <td colspan="<?php echo $show_actions ? '9' : '8'; ?>" class="text-center py-4">
                                     Nenhuma matrícula temporária encontrada.
                                 </td>
                             </tr>
@@ -749,6 +785,9 @@ class LearnDash_Temporary_Enrollment {
                                     <td><?php echo esc_html(date_i18n('d/m/Y H:i', strtotime($enrollment->enrolled_date))); ?></td>
                                     <td><?php echo esc_html(date_i18n('d/m/Y H:i', $expiration_timestamp)); ?></td>
                                     <td class="time-remaining"><?php echo esc_html($time_remaining); ?></td>
+                                    <td class="observation-cell" style="max-width: 200px; white-space: pre-wrap; word-break: break-word;">
+                                        <?php echo !empty($enrollment->observation) ? esc_html($enrollment->observation) : '<span class="text-muted">-</span>'; ?>
+                                    </td>
                                     <td>
                                         <span class="badge status-badge status-<?php echo esc_attr($enrollment->status); ?>">
                                             <?php echo esc_html(ucfirst($enrollment->status)); ?>
