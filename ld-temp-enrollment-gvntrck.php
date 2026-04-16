@@ -2,7 +2,7 @@
 /**
  * Plugin Name: LearnDash Matrícula Temporária
  * Description: Sistema de matrícula temporária com desmatrícula automática para LearnDash. Requer configuração de WP-Cron com hook 'ld_temp_check_expirations' (recomendado: hourly) para funcionamento da desmatrícula automática.
- * Version: 1.6.7
+ * Version: 1.6.8
  * Author: Gvntrck
  * Author URI: https://github.com/gvntrck
  * License: GPL v2 or later
@@ -13,17 +13,38 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-class LearnDash_Temporary_Enrollment {
-    
+require 'plugin-update-checker/plugin-update-checker.php';
+use YahnisElsts\PluginUpdateChecker\v5\PucFactory;
+
+$myUpdateChecker = PucFactory::buildUpdateChecker(
+    'https://github.com/gvntrck/LearnDash-Matricula-Temporaria',
+    __FILE__,
+    'learndash-matricula-temporaria'
+);
+
+//Set the branch that contains the stable release.
+$myUpdateChecker->setBranch('main');
+
+//Optional: If you're using a private repository, specify the access token like this:
+$myUpdateChecker->setAuthentication('your-token-here');
+
+
+
+
+
+class LearnDash_Temporary_Enrollment
+{
+
     private $table_name;
-    
-    public function __construct() {
+
+    public function __construct()
+    {
         global $wpdb;
         $this->table_name = $wpdb->prefix . 'ld_temp_enrollments';
-        
+
         // Cria tabela apenas na ativação do plugin (performance)
         register_activation_hook(__FILE__, array($this, 'activate_plugin'));
-        
+
         add_action('init', array($this, 'init'));
         add_action('admin_menu', array($this, 'add_admin_menu'), 20);
         add_action('ld_temp_check_expirations', array($this, 'check_expirations'));
@@ -32,47 +53,51 @@ class LearnDash_Temporary_Enrollment {
         add_shortcode('ld_temp_enrollments_table', array($this, 'render_enrollments_table'));
         add_shortcode('ld_temp_enrollment_form', array($this, 'render_enrollment_form'));
     }
-    
+
     /**
      * Ativação do plugin - cria tabela no banco
      */
-    public function activate_plugin() {
+    public function activate_plugin()
+    {
         $this->create_database_table();
     }
-    
+
     /**
      * Inicialização do plugin
      */
-    public function init() {
+    public function init()
+    {
         // Verifica se tabela existe, se não, cria (fallback para atualizações)
         if (!$this->table_exists()) {
             $this->create_database_table();
         }
-        
+
         // Adiciona coluna observation se não existir (migração)
         $this->maybe_add_observation_column();
     }
-    
+
     /**
      * Adiciona coluna observation se não existir (migração para versões antigas)
      */
-    private function maybe_add_observation_column() {
+    private function maybe_add_observation_column()
+    {
         global $wpdb;
-        
+
         $column_exists = $wpdb->get_results($wpdb->prepare(
             "SHOW COLUMNS FROM {$this->table_name} LIKE %s",
             'observation'
         ));
-        
+
         if (empty($column_exists)) {
             $wpdb->query("ALTER TABLE {$this->table_name} ADD COLUMN observation text DEFAULT NULL");
         }
     }
-    
+
     /**
      * Verifica se a tabela existe no banco
      */
-    private function table_exists() {
+    private function table_exists()
+    {
         global $wpdb;
         $table = $wpdb->get_var($wpdb->prepare(
             "SHOW TABLES LIKE %s",
@@ -80,16 +105,17 @@ class LearnDash_Temporary_Enrollment {
         ));
         return $table === $this->table_name;
     }
-    
+
     /**
      * Adiciona menu no admin do WordPress
      */
-    public function add_admin_menu() {
+    public function add_admin_menu()
+    {
         // Verifica se LearnDash está ativo
         if (!defined('LEARNDASH_VERSION')) {
             return;
         }
-        
+
         add_submenu_page(
             'learndash-lms',
             'Matrícula Temporária',
@@ -99,15 +125,16 @@ class LearnDash_Temporary_Enrollment {
             array($this, 'render_admin_page')
         );
     }
-    
+
     /**
      * Renderiza página administrativa
      */
-    public function render_admin_page() {
+    public function render_admin_page()
+    {
         if (!current_user_can('manage_options')) {
             wp_die('Você não tem permissão para acessar esta página.');
         }
-        
+
         ?>
         <div class="wrap">
             <h1 class="wp-heading-inline">
@@ -115,23 +142,26 @@ class LearnDash_Temporary_Enrollment {
                 Matrícula Temporária - LearnDash
             </h1>
             <hr class="wp-header-end">
-           
-            <div style="background: #fff; padding: 20px; margin-top: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+
+            <div
+                style="background: #fff; padding: 20px; margin-top: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h2 style="margin-top: 0;">Matrículas Ativas</h2>
                 <?php echo $this->render_enrollments_table(array('status' => 'active')); ?>
             </div>
-            
-            <div style="background: #fff; padding: 20px; margin-top: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+
+            <div
+                style="background: #fff; padding: 20px; margin-top: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h2 style="margin-top: 0;">Histórico de Matrículas Expiradas</h2>
                 <?php echo $this->render_enrollments_table(array('status' => 'expired', 'show_actions' => 'false')); ?>
             </div>
 
-             
-            <div style="background: #fff; padding: 20px; margin-top: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+
+            <div
+                style="background: #fff; padding: 20px; margin-top: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                 <h2 style="margin-top: 0;">Nova Matrícula</h2>
                 <?php echo $this->render_enrollment_form(array()); ?>
             </div>
-            
+
             <div style="background: #e7f5fe; padding: 15px; margin-top: 20px; border-left: 4px solid #0073aa;">
                 <h3 style="margin-top: 0;"><span class="dashicons dashicons-info"></span> Informações</h3>
                 <p><strong>Shortcodes disponíveis:</strong></p>
@@ -146,15 +176,16 @@ class LearnDash_Temporary_Enrollment {
         </div>
         <?php
     }
-    
+
     /**
      * Cria tabela customizada no banco de dados
      */
-    private function create_database_table() {
+    private function create_database_table()
+    {
         global $wpdb;
-        
+
         $charset_collate = $wpdb->get_charset_collate();
-        
+
         $sql = "CREATE TABLE IF NOT EXISTS {$this->table_name} (
             id bigint(20) NOT NULL AUTO_INCREMENT,
             user_id bigint(20) NOT NULL,
@@ -170,11 +201,11 @@ class LearnDash_Temporary_Enrollment {
             KEY status (status),
             KEY user_course (user_id, course_id)
         ) $charset_collate;";
-        
+
         require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
         dbDelta($sql);
     }
-    
+
     /**
      * Matricula usuário temporariamente em um curso
      * 
@@ -184,29 +215,30 @@ class LearnDash_Temporary_Enrollment {
      * @param string $observation Observação do lote de matrícula
      * @return bool|int ID do registro ou false em caso de erro
      */
-    public function enroll_user_temporarily($user_id, $course_id, $duration_days = 1, $observation = '') {
+    public function enroll_user_temporarily($user_id, $course_id, $duration_days = 1, $observation = '')
+    {
         global $wpdb;
-        
+
         // Validação de parâmetros
         $user_id = intval($user_id);
         $course_id = intval($course_id);
         $duration_days = intval($duration_days);
-        
+
         // Valida duration_days (1 a 365 dias)
         if ($duration_days < 1 || $duration_days > 365) {
             return array('error' => 'invalid_duration', 'message' => 'Duração deve ser entre 1 e 365 dias');
         }
-        
+
         // Verifica se o usuário e curso existem
         if (!get_userdata($user_id) || get_post_type($course_id) !== 'sfwd-courses') {
             return array('error' => 'invalid_data', 'message' => 'Usuário ou curso inválido');
         }
-        
+
         // Verifica se LearnDash está ativo
         if (!function_exists('ld_update_course_access')) {
             return array('error' => 'learndash_missing', 'message' => 'LearnDash não está ativo');
         }
-        
+
         // Verifica se já existe matrícula ativa para este usuário neste curso
         $existing_active = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$this->table_name} 
@@ -216,23 +248,23 @@ class LearnDash_Temporary_Enrollment {
             $user_id,
             $course_id
         ));
-        
+
         if ($existing_active) {
             return array(
-                'error' => 'duplicate', 
+                'error' => 'duplicate',
                 'message' => 'Usuário já possui matrícula ativa neste curso',
                 'existing_id' => $existing_active->id,
                 'existing_expiration' => $existing_active->expiration_date
             );
         }
-        
+
         // Calcula data de expiração usando timezone do WordPress (Brasília GMT-3)
         $current_date = current_time('mysql');
         $expiration_date = date('Y-m-d H:i:s', strtotime("+{$duration_days} days", strtotime($current_date)));
-        
+
         // Matricula no LearnDash
         ld_update_course_access($user_id, $course_id, false);
-        
+
         // Registra na tabela customizada
         $inserted = $wpdb->insert(
             $this->table_name,
@@ -246,37 +278,38 @@ class LearnDash_Temporary_Enrollment {
             ),
             array('%d', '%d', '%s', '%s', '%s', '%s')
         );
-        
+
         if ($inserted) {
             return $wpdb->insert_id;
         }
-        
+
         return false;
     }
-    
+
     /**
      * Desmatricula usuário de um curso
      * 
      * @param int $enrollment_id ID do registro de matrícula
      * @return bool
      */
-    public function unenroll_user($enrollment_id) {
+    public function unenroll_user($enrollment_id)
+    {
         global $wpdb;
-        
+
         $enrollment = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$this->table_name} WHERE id = %d",
             $enrollment_id
         ));
-        
+
         if (!$enrollment) {
             return false;
         }
-        
+
         // Verifica se LearnDash está ativo antes de remover acesso
         if (function_exists('ld_update_course_access')) {
             ld_update_course_access($enrollment->user_id, $enrollment->course_id, true);
         }
-        
+
         // Atualiza status
         $wpdb->update(
             $this->table_name,
@@ -285,74 +318,93 @@ class LearnDash_Temporary_Enrollment {
             array('%s'),
             array('%d')
         );
-        
+
         return true;
     }
-    
+
     /**
      * Verifica e processa matrículas expiradas (WP-Cron)
      * Hook: ld_temp_check_expirations
      */
-    public function check_expirations() {
+    public function check_expirations()
+    {
         global $wpdb;
-        
+
         $current_time = current_time('mysql');
-        
+
         $expired_enrollments = $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$this->table_name} 
             WHERE status = 'active' 
             AND expiration_date <= %s",
             $current_time
         ));
-        
+
         $count = 0;
         foreach ($expired_enrollments as $enrollment) {
             if ($this->unenroll_user($enrollment->id)) {
                 $count++;
             }
         }
-        
+
         // Log para debug (opcional)
         error_log("LearnDash Temp Enrollment: {$count} matrículas expiradas processadas.");
-        
+
         return $count;
     }
-    
+
     /**
      * Handler AJAX para matricular usuário(s)
      */
-    public function ajax_enroll_user() {
+    public function ajax_enroll_user()
+    {
         check_ajax_referer('ld_temp_enroll_nonce', 'nonce');
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => 'Permissão negada'));
         }
-        
+
         $user_emails = isset($_POST['user_emails']) ? sanitize_textarea_field($_POST['user_emails']) : '';
-        $course_id = intval($_POST['course_id']);
+        $course_ids = array();
         $duration_days = intval($_POST['duration_days']);
         $observation = isset($_POST['observation']) ? sanitize_textarea_field($_POST['observation']) : '';
-        
+
+        if (isset($_POST['course_ids']) && is_array($_POST['course_ids'])) {
+            $course_ids = array_map('intval', wp_unslash($_POST['course_ids']));
+        } elseif (isset($_POST['course_id'])) {
+            $course_ids = array(intval($_POST['course_id']));
+        }
+
+        $course_ids = array_values(array_unique(array_filter($course_ids)));
+
         // Validação server-side
         if ($duration_days < 1 || $duration_days > 365) {
             wp_send_json_error(array('message' => 'Duração deve ser entre 1 e 365 dias'));
         }
-        
-        if (!$course_id || get_post_type($course_id) !== 'sfwd-courses') {
-            wp_send_json_error(array('message' => 'Curso inválido'));
+
+        if (empty($course_ids)) {
+            wp_send_json_error(array('message' => 'Selecione pelo menos um curso'));
         }
-        
+
+        $valid_courses = array();
+        foreach ($course_ids as $course_id) {
+            if (get_post_type($course_id) !== 'sfwd-courses') {
+                wp_send_json_error(array('message' => 'Um ou mais cursos são inválidos'));
+            }
+
+            $valid_courses[$course_id] = get_the_title($course_id);
+        }
+
         // Processa emails (um por linha)
         $emails = array_filter(array_map('trim', explode("\n", $user_emails)));
-        
+
         if (empty($emails)) {
             wp_send_json_error(array('message' => 'Nenhum email fornecido'));
         }
-        
+
         $success_count = 0;
         $error_count = 0;
         $errors = array();
-        
+
         foreach ($emails as $email) {
             // Valida email
             if (!is_email($email)) {
@@ -360,81 +412,92 @@ class LearnDash_Temporary_Enrollment {
                 $error_count++;
                 continue;
             }
-            
+
             // Busca usuário por email
             $user = get_user_by('email', $email);
-            
+
             if (!$user) {
                 $errors[] = "Usuário não encontrado: " . esc_html($email);
                 $error_count++;
                 continue;
             }
-            
-            // Matricula o usuário (observação é replicada para todos do lote)
-            $result = $this->enroll_user_temporarily($user->ID, $course_id, $duration_days, $observation);
-            
-            // Verifica se foi sucesso (número inteiro positivo)
-            if (is_int($result) && $result > 0) {
-                $success_count++;
-            } else {
-                // Trata erros retornados como array
-                if (is_array($result) && isset($result['message'])) {
-                    $errors[] = esc_html($email) . ": " . esc_html($result['message']);
+
+            foreach ($valid_courses as $course_id => $course_title) {
+                // Matricula o usuário em cada curso selecionado
+                $result = $this->enroll_user_temporarily($user->ID, $course_id, $duration_days, $observation);
+
+                // Verifica se foi sucesso (número inteiro positivo)
+                if (is_int($result) && $result > 0) {
+                    $success_count++;
                 } else {
-                    $errors[] = "Erro ao matricular: " . esc_html($email);
+                    $course_label = !empty($course_title) ? $course_title : "Curso ID {$course_id}";
+
+                    // Trata erros retornados como array
+                    if (is_array($result) && isset($result['message'])) {
+                        $errors[] = esc_html($email) . ' / ' . esc_html($course_label) . ': ' . esc_html($result['message']);
+                    } else {
+                        $errors[] = 'Erro ao matricular: ' . esc_html($email) . ' / ' . esc_html($course_label);
+                    }
+                    $error_count++;
                 }
-                $error_count++;
             }
         }
-        
+
         // Prepara mensagem de resposta
         $message = "";
         if ($success_count > 0) {
-            $message .= "{$success_count} usuário(s) matriculado(s) com sucesso!";
+            $message .= "{$success_count} matrícula(s) realizada(s) com sucesso!";
         }
         if ($error_count > 0) {
             $message .= " {$error_count} erro(s) encontrado(s).";
         }
-        
+        if ($success_count === 0 && $error_count === 0) {
+            $message = 'Nenhuma matrícula foi processada.';
+        }
+
         wp_send_json_success(array(
             'message' => $message,
             'success_count' => $success_count,
             'error_count' => $error_count,
-            'errors' => $errors
+            'errors' => $errors,
+            'course_count' => count($valid_courses),
+            'user_count' => count($emails)
         ));
     }
-    
+
     /**
      * Handler AJAX para desmatricular usuário
      */
-    public function ajax_unenroll_user() {
+    public function ajax_unenroll_user()
+    {
         check_ajax_referer('ld_temp_unenroll_nonce', 'nonce');
-        
+
         if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => 'Permissão negada'));
         }
-        
+
         $enrollment_id = intval($_POST['enrollment_id']);
         $result = $this->unenroll_user($enrollment_id);
-        
+
         if ($result) {
             wp_send_json_success(array('message' => 'Usuário desmatriculado com sucesso!'));
         } else {
             wp_send_json_error(array('message' => 'Erro ao desmatricular usuário'));
         }
     }
-    
+
     /**
      * Renderiza formulário de matrícula temporária
      * 
      * @param array $atts Atributos do shortcode
      * @return string HTML do formulário
      */
-    public function render_enrollment_form($atts) {
+    public function render_enrollment_form($atts)
+    {
         if (!current_user_can('manage_options')) {
             return '<div class="alert alert-danger">Você não tem permissão para acessar este formulário.</div>';
         }
-        
+
         $courses = get_posts(array(
             'post_type' => 'sfwd-courses',
             'post_status' => 'publish',
@@ -442,258 +505,319 @@ class LearnDash_Temporary_Enrollment {
             'orderby' => 'title',
             'order' => 'ASC'
         ));
-        
+
         ob_start();
         ?>
         <div class="ld-temp-enrollment-form-wrapper">
             <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/css/bootstrap.min.css" rel="stylesheet">
-            
+            <style>
+                .ld-course-checkboxes {
+                    max-height: 280px;
+                    overflow-y: auto;
+                    background: #fff;
+                }
+
+                .ld-course-checkboxes .form-check {
+                    margin-bottom: 0.5rem;
+                }
+
+                .ld-course-checkboxes .form-check:last-child {
+                    margin-bottom: 0;
+                }
+            </style>
+
             <div class="">
                 <div class="card-header bg-primary text-white">
                     <h5 class="mb-0"><i class="bi bi-person-plus"></i> Matrícula Temporária em Lote</h5>
                 </div>
                 <div class="card-body">
                     <div class="alert alert-info">
-                        <strong><i class="bi bi-info-circle"></i> Dica:</strong> Insira um email por linha para matricular múltiplos usuários de uma vez.
+                        <strong><i class="bi bi-info-circle"></i> Dica:</strong> Insira um email por linha e marque um ou mais
+                        cursos para matricular vários usuários em vários cursos de uma vez.
                     </div>
-                    
+
                     <form id="ld-temp-enrollment-form">
                         <div class="row">
                             <div class="col-md-6 mb-3">
                                 <label for="user_emails" class="form-label">Emails dos Usuários *</label>
-                                <textarea name="user_emails" id="user_emails" class="form-control" rows="8" 
-                                          placeholder="usuario1@exemplo.com&#10;usuario2@exemplo.com&#10;usuario3@exemplo.com" 
-                                          required></textarea>
+                                <textarea name="user_emails" id="user_emails" class="form-control" rows="8"
+                                    placeholder="usuario1@exemplo.com&#10;usuario2@exemplo.com&#10;usuario3@exemplo.com"
+                                    required></textarea>
                                 <div class="form-text">
-                                    <i class="bi bi-arrow-return-left"></i> Um email por linha. Emails inválidos serão ignorados.
+                                    <i class="bi bi-arrow-return-left"></i> Um email por linha. Emails inválidos serão
+                                    ignorados.
                                 </div>
                             </div>
-                            
+
                             <div class="col-md-6 mb-3">
-                                <label for="course_id" class="form-label">Curso *</label>
-                                <select name="course_id" id="course_id" class="form-select" required>
-                                    <option value="">Selecione um curso</option>
-                                    <?php foreach ($courses as $course): ?>
-                                        <option value="<?php echo esc_attr($course->ID); ?>">
-                                            <?php echo esc_html($course->post_title); ?>
-                                        </option>
-                                    <?php endforeach; ?>
-                                </select>
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <label class="form-label mb-0">Cursos *</label>
+                                    <div class="btn-group btn-group-sm" role="group" aria-label="Ações dos cursos">
+                                        <button type="button" class="btn btn-outline-secondary"
+                                            id="ld-select-all-courses">Selecionar todos</button>
+                                        <button type="button" class="btn btn-outline-secondary"
+                                            id="ld-clear-courses">Limpar</button>
+                                    </div>
+                                </div>
+                                <div id="ld-course-checkboxes" class="ld-course-checkboxes border rounded p-3">
+                                    <?php if (empty($courses)): ?>
+                                        <div class="text-muted">Nenhum curso publicado encontrado.</div>
+                                    <?php else: ?>
+                                        <?php foreach ($courses as $course): ?>
+                                            <div class="form-check">
+                                                <input class="form-check-input ld-course-checkbox" type="checkbox" name="course_ids[]"
+                                                    id="course_id_<?php echo esc_attr($course->ID); ?>"
+                                                    value="<?php echo esc_attr($course->ID); ?>">
+                                                <label class="form-check-label" for="course_id_<?php echo esc_attr($course->ID); ?>">
+                                                    <?php echo esc_html($course->post_title); ?>
+                                                </label>
+                                            </div>
+                                        <?php endforeach; ?>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="form-text">Marque um ou mais cursos para aplicar a matrícula em lote.</div>
                             </div>
                         </div>
-                        
+
                         <div class="row">
                             <div class="col-md-4 mb-3">
                                 <label for="expiration_date" class="form-label">Data de Expiração</label>
-                                <input type="text" name="expiration_date" id="expiration_date" class="form-control" 
-                                       placeholder="dd/mm/aaaa" maxlength="10">
+                                <input type="text" name="expiration_date" id="expiration_date" class="form-control"
+                                    placeholder="dd/mm/aaaa" maxlength="10">
                                 <div class="form-text">Preencha a data ou use os dias abaixo</div>
                             </div>
-                            
+
                             <div class="col-md-4 mb-3">
                                 <label for="duration_days" class="form-label">Duração (dias) *</label>
-                                <input type="number" name="duration_days" id="duration_days" class="form-control" 
-                                       value="1" min="1" max="365" required>
+                                <input type="number" name="duration_days" id="duration_days" class="form-control" value="1"
+                                    min="1" max="365" required>
                                 <div class="form-text">Máximo: 365 dias (1 ano)</div>
                             </div>
-                            
+
                             <div class="col-md-4 mb-3">
                                 <label class="form-label">Atalhos de Duração</label>
                                 <div class="btn-group d-flex flex-wrap" role="group">
-                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="1">1 dia</button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="7">7 dias</button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="15">15 dias</button>
-                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn" data-days="30">30 dias</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn"
+                                        data-days="1">1 dia</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn"
+                                        data-days="7">7 dias</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn"
+                                        data-days="15">15 dias</button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm ld-duration-btn"
+                                        data-days="30">30 dias</button>
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="row">
                             <div class="col-12 mb-3">
                                 <label for="observation" class="form-label">Observação do Lote</label>
-                                <textarea name="observation" id="observation" class="form-control" rows="4" 
-                                          placeholder="Digite aqui observações sobre este lote de matrículas (opcional). Esta observação será aplicada a todos os emails cadastrados."></textarea>
+                                <textarea name="observation" id="observation" class="form-control" rows="4"
+                                    placeholder="Digite aqui observações sobre este lote de matrículas (opcional). Esta observação será aplicada a todos os emails cadastrados."></textarea>
                                 <div class="form-text">
-                                    <i class="bi bi-info-circle"></i> Esta observação será replicada para todas as matrículas deste lote.
+                                    <i class="bi bi-info-circle"></i> Esta observação será replicada para todas as matrículas
+                                    deste lote.
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="d-grid gap-2">
                             <button type="submit" class="btn btn-primary btn-lg">
                                 <i class="bi bi-check-circle"></i> Matricular Temporariamente
                             </button>
                         </div>
                     </form>
-                    
+
                     <div id="ld-enrollment-message" class="mt-3" style="display:none;"></div>
                 </div>
             </div>
-            
+
             <script>
-            jQuery(document).ready(function($) {
-                // Máscara para campo de data dd/mm/aaaa
-                $('#expiration_date').on('input', function(e) {
-                    var value = $(this).val().replace(/\D/g, '');
-                    var formatted = '';
-                    
-                    if (value.length > 0) {
-                        formatted = value.substring(0, 2);
+                jQuery(document).ready(function ($) {
+                    function getSelectedCourseIds() {
+                        return $('.ld-course-checkbox:checked').map(function () {
+                            return $(this).val();
+                        }).get();
                     }
-                    if (value.length > 2) {
-                        formatted += '/' + value.substring(2, 4);
-                    }
-                    if (value.length > 4) {
-                        formatted += '/' + value.substring(4, 8);
-                    }
-                    
-                    $(this).val(formatted);
-                    
-                    // Calcula dias quando a data está completa
-                    if (formatted.length === 10) {
-                        calculateDaysFromDate(formatted);
-                    }
-                });
-                
-                // Função para calcular dias a partir da data
-                function calculateDaysFromDate(dateStr) {
-                    var parts = dateStr.split('/');
-                    if (parts.length !== 3) return;
-                    
-                    var day = parseInt(parts[0], 10);
-                    var month = parseInt(parts[1], 10) - 1; // Mês começa em 0
-                    var year = parseInt(parts[2], 10);
-                    
-                    // Valida data
-                    if (isNaN(day) || isNaN(month) || isNaN(year)) return;
-                    if (day < 1 || day > 31 || month < 0 || month > 11 || year < 2020) return;
-                    
-                    var expirationDate = new Date(year, month, day, 23, 59, 59);
-                    var today = new Date();
-                    today.setHours(0, 0, 0, 0);
-                    
-                    var diffTime = expirationDate - today;
-                    var diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                    
-                    if (diffDays >= 1 && diffDays <= 365) {
-                        $('#duration_days').val(diffDays);
-                    } else if (diffDays < 1) {
-                        alert('A data de expiração deve ser futura!');
-                        $('#expiration_date').val('');
-                    } else if (diffDays > 365) {
-                        alert('A data de expiração não pode ser maior que 365 dias!');
-                        $('#expiration_date').val('');
-                    }
-                }
-                
-                // Função para calcular data a partir dos dias
-                function calculateDateFromDays(days) {
-                    var today = new Date();
-                    var expirationDate = new Date(today.getTime() + (days * 24 * 60 * 60 * 1000));
-                    
-                    var day = String(expirationDate.getDate()).padStart(2, '0');
-                    var month = String(expirationDate.getMonth() + 1).padStart(2, '0');
-                    var year = expirationDate.getFullYear();
-                    
-                    return day + '/' + month + '/' + year;
-                }
-                
-                // Atualiza data quando dias mudam
-                $('#duration_days').on('change input', function() {
-                    var days = parseInt($(this).val(), 10);
-                    if (days >= 1 && days <= 365) {
-                        $('#expiration_date').val(calculateDateFromDays(days));
-                    }
-                });
-                
-                // Botões de atalho de duração
-                $('.ld-duration-btn').on('click', function() {
-                    var days = $(this).data('days');
-                    $('#duration_days').val(days);
-                    $('#expiration_date').val(calculateDateFromDays(days));
-                });
-                
-                // Inicializa com 1 dia
-                $('#expiration_date').val(calculateDateFromDays(1));
-                
-                $('#ld-temp-enrollment-form').on('submit', function(e) {
-                    e.preventDefault();
-                    
-                    var $form = $(this);
-                    var $btn = $form.find('button[type="submit"]');
-                    var $message = $('#ld-enrollment-message');
-                    
-                    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Processando...');
-                    $message.hide();
-                    
-                    $.ajax({
-                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                        type: 'POST',
-                        data: {
-                            action: 'ld_temp_enroll',
-                            nonce: '<?php echo wp_create_nonce('ld_temp_enroll_nonce'); ?>',
-                            user_emails: $('#user_emails').val(),
-                            course_id: $('#course_id').val(),
-                            duration_days: $('#duration_days').val(),
-                            observation: $('#observation').val()
-                        },
-                        success: function(response) {
-                            if (response.success) {
-                                var alertClass = response.data.error_count > 0 ? 'alert-warning' : 'alert-success';
-                                var messageHtml = '<div class="alert ' + alertClass + '">' + response.data.message;
-                                
-                                if (response.data.errors && response.data.errors.length > 0) {
-                                    messageHtml += '<hr><strong>Erros:</strong><ul class="mb-0">';
-                                    response.data.errors.forEach(function(error) {
-                                        messageHtml += '<li>' + error + '</li>';
-                                    });
-                                    messageHtml += '</ul>';
-                                }
-                                
-                                messageHtml += '</div>';
-                                $message.html(messageHtml).show();
-                                
-                                if (response.data.success_count > 0) {
-                                    $form[0].reset();
-                                    setTimeout(function() {
-                                        location.reload();
-                                    }, 3000);
-                                }
-                            } else {
-                                $message.html('<div class="alert alert-danger">' + response.data.message + '</div>').show();
-                            }
-                        },
-                        error: function() {
-                            $message.html('<div class="alert alert-danger">Erro ao processar requisição.</div>').show();
-                        },
-                        complete: function() {
-                            $btn.prop('disabled', false).html('<i class="bi bi-check-circle"></i> Matricular Temporariamente');
+
+                    // Máscara para campo de data dd/mm/aaaa
+                    $('#expiration_date').on('input', function (e) {
+                        var value = $(this).val().replace(/\D/g, '');
+                        var formatted = '';
+
+                        if (value.length > 0) {
+                            formatted = value.substring(0, 2);
+                        }
+                        if (value.length > 2) {
+                            formatted += '/' + value.substring(2, 4);
+                        }
+                        if (value.length > 4) {
+                            formatted += '/' + value.substring(4, 8);
+                        }
+
+                        $(this).val(formatted);
+
+                        // Calcula dias quando a data está completa
+                        if (formatted.length === 10) {
+                            calculateDaysFromDate(formatted);
                         }
                     });
+
+                    // Função para calcular dias a partir da data
+                    function calculateDaysFromDate(dateStr) {
+                        var parts = dateStr.split('/');
+                        if (parts.length !== 3) return;
+
+                        var day = parseInt(parts[0], 10);
+                        var month = parseInt(parts[1], 10) - 1; // Mês começa em 0
+                        var year = parseInt(parts[2], 10);
+
+                        // Valida data
+                        if (isNaN(day) || isNaN(month) || isNaN(year)) return;
+                        if (day < 1 || day > 31 || month < 0 || month > 11 || year < 2020) return;
+
+                        var expirationDate = new Date(year, month, day, 23, 59, 59);
+                        var today = new Date();
+                        today.setHours(0, 0, 0, 0);
+
+                        var diffTime = expirationDate - today;
+                        var diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                        if (diffDays >= 1 && diffDays <= 365) {
+                            $('#duration_days').val(diffDays);
+                        } else if (diffDays < 1) {
+                            alert('A data de expiração deve ser futura!');
+                            $('#expiration_date').val('');
+                        } else if (diffDays > 365) {
+                            alert('A data de expiração não pode ser maior que 365 dias!');
+                            $('#expiration_date').val('');
+                        }
+                    }
+
+                    // Função para calcular data a partir dos dias
+                    function calculateDateFromDays(days) {
+                        var today = new Date();
+                        var expirationDate = new Date(today.getTime() + (days * 24 * 60 * 60 * 1000));
+
+                        var day = String(expirationDate.getDate()).padStart(2, '0');
+                        var month = String(expirationDate.getMonth() + 1).padStart(2, '0');
+                        var year = expirationDate.getFullYear();
+
+                        return day + '/' + month + '/' + year;
+                    }
+
+                    // Atualiza data quando dias mudam
+                    $('#duration_days').on('change input', function () {
+                        var days = parseInt($(this).val(), 10);
+                        if (days >= 1 && days <= 365) {
+                            $('#expiration_date').val(calculateDateFromDays(days));
+                        }
+                    });
+
+                    // Botões de atalho de duração
+                    $('.ld-duration-btn').on('click', function () {
+                        var days = $(this).data('days');
+                        $('#duration_days').val(days);
+                        $('#expiration_date').val(calculateDateFromDays(days));
+                    });
+
+                    $('#ld-select-all-courses').on('click', function () {
+                        $('.ld-course-checkbox').prop('checked', true);
+                    });
+
+                    $('#ld-clear-courses').on('click', function () {
+                        $('.ld-course-checkbox').prop('checked', false);
+                    });
+
+                    // Inicializa com 1 dia
+                    $('#expiration_date').val(calculateDateFromDays(1));
+
+                    $('#ld-temp-enrollment-form').on('submit', function (e) {
+                        e.preventDefault();
+
+                        var $form = $(this);
+                        var $btn = $form.find('button[type="submit"]');
+                        var $message = $('#ld-enrollment-message');
+                        var selectedCourseIds = getSelectedCourseIds();
+
+                        if (!selectedCourseIds.length) {
+                            $message.html('<div class="alert alert-danger">Selecione pelo menos um curso.</div>').show();
+                            return;
+                        }
+
+                        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Processando...');
+                        $message.hide();
+
+                        $.ajax({
+                            url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                            type: 'POST',
+                            data: {
+                                action: 'ld_temp_enroll',
+                                nonce: '<?php echo wp_create_nonce('ld_temp_enroll_nonce'); ?>',
+                                user_emails: $('#user_emails').val(),
+                                course_ids: selectedCourseIds,
+                                duration_days: $('#duration_days').val(),
+                                observation: $('#observation').val()
+                            },
+                            success: function (response) {
+                                if (response.success) {
+                                    var alertClass = response.data.error_count > 0 ? 'alert-warning' : 'alert-success';
+                                    var messageHtml = '<div class="alert ' + alertClass + '">' + response.data.message;
+
+                                    if (response.data.errors && response.data.errors.length > 0) {
+                                        messageHtml += '<hr><strong>Erros:</strong><ul class="mb-0">';
+                                        response.data.errors.forEach(function (error) {
+                                            messageHtml += '<li>' + error + '</li>';
+                                        });
+                                        messageHtml += '</ul>';
+                                    }
+
+                                    messageHtml += '</div>';
+                                    $message.html(messageHtml).show();
+
+                                    if (response.data.success_count > 0) {
+                                        $form[0].reset();
+                                        $('#expiration_date').val(calculateDateFromDays(1));
+                                        setTimeout(function () {
+                                            location.reload();
+                                        }, 3000);
+                                    }
+                                } else {
+                                    $message.html('<div class="alert alert-danger">' + response.data.message + '</div>').show();
+                                }
+                            },
+                            error: function () {
+                                $message.html('<div class="alert alert-danger">Erro ao processar requisição.</div>').show();
+                            },
+                            complete: function () {
+                                $btn.prop('disabled', false).html('<i class="bi bi-check-circle"></i> Matricular Temporariamente');
+                            }
+                        });
+                    });
                 });
-            });
             </script>
             <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.min.js"></script>
         </div>
         <?php
         return ob_get_clean();
     }
-    
+
     /**
      * Renderiza tabela de matrículas temporárias
      * 
      * @param array $atts Atributos do shortcode
      * @return string HTML da tabela
      */
-    public function render_enrollments_table($atts) {
+    public function render_enrollments_table($atts)
+    {
         global $wpdb;
-        
+
         $atts = shortcode_atts(array(
             'status' => 'active',
             'limit' => 100,
             'show_actions' => 'true'
         ), $atts);
-        
+
         $enrollments = $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$this->table_name} 
             WHERE status = %s 
@@ -702,9 +826,9 @@ class LearnDash_Temporary_Enrollment {
             $atts['status'],
             $atts['limit']
         ));
-        
+
         $show_actions = ($atts['show_actions'] === 'true' && current_user_can('manage_options'));
-        
+
         ob_start();
         ?>
         <div class="ld-temp-enrollments-wrapper">
@@ -714,30 +838,35 @@ class LearnDash_Temporary_Enrollment {
                 .ld-temp-enrollments-wrapper {
                     margin: 20px 0;
                 }
+
                 .status-badge {
                     padding: 4px 8px;
                     border-radius: 4px;
                     font-size: 12px;
                     font-weight: 600;
                 }
+
                 .status-active {
-                    background-color:rgb(89, 224, 121);
+                    background-color: rgb(89, 224, 121);
                     color: #155724;
                 }
+
                 .status-expired {
                     background-color: #f8d7da;
                     color: #721c24;
                 }
+
                 .time-remaining {
                     font-size: 13px;
                     color: #666;
                 }
+
                 .action-buttons .btn {
                     padding: 4px 8px;
                     font-size: 12px;
                 }
             </style>
-            
+
             <div class="table-responsive">
                 <table class="table table-striped table-hover">
                     <thead class="table-light">
@@ -767,15 +896,15 @@ class LearnDash_Temporary_Enrollment {
                                 <?php
                                 $user = get_userdata($enrollment->user_id);
                                 $course = get_post($enrollment->course_id);
-                                
+
                                 if (!$user || !$course) {
                                     continue;
                                 }
-                                
+
                                 $expiration_timestamp = strtotime($enrollment->expiration_date);
                                 $current_timestamp = current_time('timestamp');
                                 $time_diff = $expiration_timestamp - $current_timestamp;
-                                
+
                                 $time_remaining = $this->format_time_remaining($time_diff);
                                 ?>
                                 <tr id="enrollment-row-<?php echo esc_attr($enrollment->id); ?>">
@@ -785,7 +914,8 @@ class LearnDash_Temporary_Enrollment {
                                     <td><?php echo esc_html(date_i18n('d/m/Y H:i', strtotime($enrollment->enrolled_date))); ?></td>
                                     <td><?php echo esc_html(date_i18n('d/m/Y H:i', $expiration_timestamp)); ?></td>
                                     <td class="time-remaining"><?php echo esc_html($time_remaining); ?></td>
-                                    <td class="observation-cell" style="max-width: 200px; white-space: pre-wrap; word-break: break-word;">
+                                    <td class="observation-cell"
+                                        style="max-width: 200px; white-space: pre-wrap; word-break: break-word;">
                                         <?php echo !empty($enrollment->observation) ? esc_html($enrollment->observation) : '<span class="text-muted">-</span>'; ?>
                                     </td>
                                     <td>
@@ -796,9 +926,8 @@ class LearnDash_Temporary_Enrollment {
                                     <?php if ($show_actions): ?>
                                         <td class="text-center action-buttons">
                                             <?php if ($enrollment->status === 'active'): ?>
-                                                <button class="btn btn-danger btn-sm ld-unenroll-btn" 
-                                                        data-enrollment-id="<?php echo esc_attr($enrollment->id); ?>"
-                                                        title="Desmatricular agora">
+                                                <button class="btn btn-danger btn-sm ld-unenroll-btn"
+                                                    data-enrollment-id="<?php echo esc_attr($enrollment->id); ?>" title="Desmatricular agora">
                                                     <i class="bi bi-x-circle"></i> Desmatricular
                                                 </button>
                                             <?php else: ?>
@@ -812,73 +941,74 @@ class LearnDash_Temporary_Enrollment {
                     </tbody>
                 </table>
             </div>
-            
+
             <?php if ($show_actions): ?>
-            <script>
-            jQuery(document).ready(function($) {
-                $('.ld-unenroll-btn').on('click', function() {
-                    if (!confirm('Tem certeza que deseja desmatricular este usuário agora?')) {
-                        return;
-                    }
-                    
-                    var $btn = $(this);
-                    var enrollmentId = $btn.data('enrollment-id');
-                    var $row = $('#enrollment-row-' + enrollmentId);
-                    
-                    $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
-                    
-                    $.ajax({
-                        url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                        type: 'POST',
-                        data: {
-                            action: 'ld_temp_unenroll',
-                            nonce: '<?php echo wp_create_nonce('ld_temp_unenroll_nonce'); ?>',
-                            enrollment_id: enrollmentId
-                        },
-                        success: function(response) {
-                            if (response.success) {
-                                $row.fadeOut(400, function() {
-                                    $(this).remove();
-                                });
-                                alert(response.data.message);
-                            } else {
-                                alert(response.data.message);
-                                $btn.prop('disabled', false).html('<i class="bi bi-x-circle"></i> Desmatricular');
+                <script>
+                    jQuery(document).ready(function ($) {
+                        $('.ld-unenroll-btn').on('click', function () {
+                            if (!confirm('Tem certeza que deseja desmatricular este usuário agora?')) {
+                                return;
                             }
-                        },
-                        error: function() {
-                            alert('Erro ao processar requisição.');
-                            $btn.prop('disabled', false).html('<i class="bi bi-x-circle"></i> Desmatricular');
-                        }
+
+                            var $btn = $(this);
+                            var enrollmentId = $btn.data('enrollment-id');
+                            var $row = $('#enrollment-row-' + enrollmentId);
+
+                            $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span>');
+
+                            $.ajax({
+                                url: '<?php echo admin_url('admin-ajax.php'); ?>',
+                                type: 'POST',
+                                data: {
+                                    action: 'ld_temp_unenroll',
+                                    nonce: '<?php echo wp_create_nonce('ld_temp_unenroll_nonce'); ?>',
+                                    enrollment_id: enrollmentId
+                                },
+                                success: function (response) {
+                                    if (response.success) {
+                                        $row.fadeOut(400, function () {
+                                            $(this).remove();
+                                        });
+                                        alert(response.data.message);
+                                    } else {
+                                        alert(response.data.message);
+                                        $btn.prop('disabled', false).html('<i class="bi bi-x-circle"></i> Desmatricular');
+                                    }
+                                },
+                                error: function () {
+                                    alert('Erro ao processar requisição.');
+                                    $btn.prop('disabled', false).html('<i class="bi bi-x-circle"></i> Desmatricular');
+                                }
+                            });
+                        });
                     });
-                });
-            });
-            </script>
+                </script>
             <?php endif; ?>
-            
+
             <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.7/dist/js/bootstrap.min.js"></script>
         </div>
         <?php
         return ob_get_clean();
     }
-    
+
     /**
      * Formata tempo restante de forma legível
      * 
      * @param int $seconds Segundos restantes
      * @return string Tempo formatado
      */
-    private function format_time_remaining($seconds) {
+    private function format_time_remaining($seconds)
+    {
         if ($seconds <= 0) {
             return 'Expirado';
         }
-        
+
         $days = floor($seconds / 86400);
         $hours = floor(($seconds % 86400) / 3600);
         $minutes = floor(($seconds % 3600) / 60);
-        
+
         $parts = array();
-        
+
         if ($days > 0) {
             $parts[] = $days . ' dia' . ($days > 1 ? 's' : '');
         }
@@ -888,19 +1018,20 @@ class LearnDash_Temporary_Enrollment {
         if ($minutes > 0 && $days === 0) {
             $parts[] = $minutes . ' minuto' . ($minutes > 1 ? 's' : '');
         }
-        
+
         return !empty($parts) ? implode(', ', $parts) : 'Menos de 1 minuto';
     }
-    
+
     /**
      * Obtém todas as matrículas ativas de um usuário
      * 
      * @param int $user_id ID do usuário
      * @return array
      */
-    public function get_user_enrollments($user_id) {
+    public function get_user_enrollments($user_id)
+    {
         global $wpdb;
-        
+
         return $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$this->table_name} 
             WHERE user_id = %d 
@@ -909,16 +1040,17 @@ class LearnDash_Temporary_Enrollment {
             $user_id
         ));
     }
-    
+
     /**
      * Obtém todas as matrículas de um curso
      * 
      * @param int $course_id ID do curso
      * @return array
      */
-    public function get_course_enrollments($course_id) {
+    public function get_course_enrollments($course_id)
+    {
         global $wpdb;
-        
+
         return $wpdb->get_results($wpdb->prepare(
             "SELECT * FROM {$this->table_name} 
             WHERE course_id = %d 
@@ -944,7 +1076,8 @@ $GLOBALS['ld_temp_enrollment'] = new LearnDash_Temporary_Enrollment();
  * @param int $duration_days Duração em dias (padrão: 1)
  * @return bool|int
  */
-function ld_enroll_user_temporarily($user_id, $course_id, $duration_days = 1) {
+function ld_enroll_user_temporarily($user_id, $course_id, $duration_days = 1)
+{
     global $ld_temp_enrollment;
     return $ld_temp_enrollment->enroll_user_temporarily($user_id, $course_id, $duration_days);
 }
@@ -955,7 +1088,8 @@ function ld_enroll_user_temporarily($user_id, $course_id, $duration_days = 1) {
  * @param int $enrollment_id ID do registro de matrícula
  * @return bool
  */
-function ld_unenroll_user_temporarily($enrollment_id) {
+function ld_unenroll_user_temporarily($enrollment_id)
+{
     global $ld_temp_enrollment;
     return $ld_temp_enrollment->unenroll_user($enrollment_id);
 }
@@ -966,7 +1100,8 @@ function ld_unenroll_user_temporarily($enrollment_id) {
  * @param int $user_id ID do usuário
  * @return array
  */
-function ld_get_user_temp_enrollments($user_id) {
+function ld_get_user_temp_enrollments($user_id)
+{
     global $ld_temp_enrollment;
     return $ld_temp_enrollment->get_user_enrollments($user_id);
 }
