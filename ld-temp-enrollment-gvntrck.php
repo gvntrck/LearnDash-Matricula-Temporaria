@@ -213,9 +213,10 @@ class LearnDash_Temporary_Enrollment
      * @param int $course_id ID do curso
      * @param int $duration_days Duração em dias
      * @param string $observation Observação do lote de matrícula
+     * @param string $expiration_datetime Data/hora de expiração no formato dd/mm/aaaa HH:mm
      * @return bool|int ID do registro ou false em caso de erro
      */
-    public function enroll_user_temporarily($user_id, $course_id, $duration_days = 1, $observation = '')
+    public function enroll_user_temporarily($user_id, $course_id, $duration_days = 1, $observation = '', $expiration_datetime = '')
     {
         global $wpdb;
 
@@ -223,9 +224,15 @@ class LearnDash_Temporary_Enrollment
         $user_id = intval($user_id);
         $course_id = intval($course_id);
         $duration_days = intval($duration_days);
+        $expiration_datetime = trim((string) $expiration_datetime);
 
-        // Valida duration_days (1 a 365 dias)
-        if ($duration_days < 1 || $duration_days > 365) {
+        if (!empty($expiration_datetime)) {
+            $parsed_expiration_date = $this->parse_expiration_datetime($expiration_datetime);
+
+            if (is_array($parsed_expiration_date)) {
+                return $parsed_expiration_date;
+            }
+        } elseif ($duration_days < 1 || $duration_days > 365) {
             return array('error' => 'invalid_duration', 'message' => 'Duração deve ser entre 1 e 365 dias');
         }
 
@@ -258,9 +265,11 @@ class LearnDash_Temporary_Enrollment
             );
         }
 
-        // Calcula data de expiração usando timezone do WordPress (Brasília GMT-3)
+        // Calcula data de expiração usando timezone do WordPress.
         $current_date = current_time('mysql');
-        $expiration_date = date('Y-m-d H:i:s', strtotime("+{$duration_days} days", strtotime($current_date)));
+        $expiration_date = !empty($parsed_expiration_date)
+            ? $parsed_expiration_date
+            : date('Y-m-d H:i:s', strtotime("+{$duration_days} days", strtotime($current_date)));
 
         // Matricula no LearnDash
         ld_update_course_access($user_id, $course_id, false);
@@ -284,6 +293,61 @@ class LearnDash_Temporary_Enrollment
         }
 
         return false;
+    }
+
+    /**
+     * Converte dd/mm/aaaa HH:mm para o formato mysql, respeitando o timezone do WordPress.
+     *
+     * @param string $expiration_datetime Data/hora informada pelo usuário.
+     * @return string|array Data mysql ou erro padronizado.
+     */
+    private function parse_expiration_datetime($expiration_datetime)
+    {
+        $timezone = function_exists('wp_timezone') ? wp_timezone() : new DateTimeZone('America/Sao_Paulo');
+        $expiration_datetime = trim($expiration_datetime);
+        $formats = array(
+            array('format' => '!d/m/Y H:i', 'date_only' => false),
+            array('format' => '!d/m/Y', 'date_only' => true),
+        );
+
+        foreach ($formats as $format_config) {
+            $date = DateTime::createFromFormat($format_config['format'], $expiration_datetime, $timezone);
+            $errors = DateTime::getLastErrors();
+            $has_errors = is_array($errors) && ($errors['warning_count'] > 0 || $errors['error_count'] > 0);
+
+            if (!$date || $has_errors) {
+                continue;
+            }
+
+            if ($format_config['date_only']) {
+                $date->setTime(23, 59, 59);
+            }
+
+            $now = new DateTime('now', $timezone);
+            $max_date = clone $now;
+            $max_date->modify('+365 days');
+
+            if ($date <= $now) {
+                return array(
+                    'error' => 'invalid_expiration',
+                    'message' => 'A data e hora de expiração deve ser futura'
+                );
+            }
+
+            if ($date > $max_date) {
+                return array(
+                    'error' => 'invalid_expiration',
+                    'message' => 'A data e hora de expiração não pode ser maior que 365 dias'
+                );
+            }
+
+            return $date->format('Y-m-d H:i:s');
+        }
+
+        return array(
+            'error' => 'invalid_expiration',
+            'message' => 'Informe a expiração no formato dd/mm/aaaa HH:mm'
+        );
     }
 
     /**
@@ -365,7 +429,10 @@ class LearnDash_Temporary_Enrollment
 
         $user_emails = isset($_POST['user_emails']) ? sanitize_textarea_field($_POST['user_emails']) : '';
         $course_ids = array();
-        $duration_days = intval($_POST['duration_days']);
+        $duration_days = isset($_POST['duration_days']) ? intval($_POST['duration_days']) : 1;
+        $expiration_datetime = isset($_POST['expiration_date'])
+            ? sanitize_text_field(wp_unslash($_POST['expiration_date']))
+            : '';
         $observation = isset($_POST['observation']) ? sanitize_textarea_field($_POST['observation']) : '';
 
         if (isset($_POST['course_ids']) && is_array($_POST['course_ids'])) {
@@ -376,9 +443,18 @@ class LearnDash_Temporary_Enrollment
 
         $course_ids = array_values(array_unique(array_filter($course_ids)));
 
-        // Validação server-side
-        if ($duration_days < 1 || $duration_days > 365) {
+        // Validação server-side. Quando data/hora explícita vem do formulário,
+        // a validação completa acontece ao matricular cada usuário.
+        if (empty($expiration_datetime) && ($duration_days < 1 || $duration_days > 365)) {
             wp_send_json_error(array('message' => 'Duração deve ser entre 1 e 365 dias'));
+        }
+
+        if (!empty($expiration_datetime)) {
+            $validated_expiration = $this->parse_expiration_datetime($expiration_datetime);
+
+            if (is_array($validated_expiration)) {
+                wp_send_json_error(array('message' => $validated_expiration['message']));
+            }
         }
 
         if (empty($course_ids)) {
@@ -424,7 +500,7 @@ class LearnDash_Temporary_Enrollment
 
             foreach ($valid_courses as $course_id => $course_title) {
                 // Matricula o usuário em cada curso selecionado
-                $result = $this->enroll_user_temporarily($user->ID, $course_id, $duration_days, $observation);
+                $result = $this->enroll_user_temporarily($user->ID, $course_id, $duration_days, $observation, $expiration_datetime);
 
                 // Verifica se foi sucesso (número inteiro positivo)
                 if (is_int($result) && $result > 0) {
@@ -581,10 +657,10 @@ class LearnDash_Temporary_Enrollment
 
                         <div class="row">
                             <div class="col-md-4 mb-3">
-                                <label for="expiration_date" class="form-label">Data de Expiração</label>
+                                <label for="expiration_date" class="form-label">Data e Hora de Expiração</label>
                                 <input type="text" name="expiration_date" id="expiration_date" class="form-control"
-                                    placeholder="dd/mm/aaaa" maxlength="10">
-                                <div class="form-text">Preencha a data ou use os dias abaixo</div>
+                                    placeholder="dd/mm/aaaa HH:mm" maxlength="16" inputmode="numeric">
+                                <div class="form-text">Formato 24h: 10/06/2026 18:30</div>
                             </div>
 
                             <div class="col-md-4 mb-3">
@@ -640,9 +716,9 @@ class LearnDash_Temporary_Enrollment
                         }).get();
                     }
 
-                    // Máscara para campo de data dd/mm/aaaa
+                    // Máscara para campo de data/hora dd/mm/aaaa HH:mm
                     $('#expiration_date').on('input', function (e) {
-                        var value = $(this).val().replace(/\D/g, '');
+                        var value = $(this).val().replace(/\D/g, '').substring(0, 12);
                         var formatted = '';
 
                         if (value.length > 0) {
@@ -654,63 +730,85 @@ class LearnDash_Temporary_Enrollment
                         if (value.length > 4) {
                             formatted += '/' + value.substring(4, 8);
                         }
+                        if (value.length > 8) {
+                            formatted += ' ' + value.substring(8, 10);
+                        }
+                        if (value.length > 10) {
+                            formatted += ':' + value.substring(10, 12);
+                        }
 
                         $(this).val(formatted);
 
-                        // Calcula dias quando a data está completa
-                        if (formatted.length === 10) {
-                            calculateDaysFromDate(formatted);
+                        // Calcula dias quando a data/hora está completa
+                        if (formatted.length === 16) {
+                            calculateDaysFromDateTime(formatted);
                         }
                     });
 
-                    // Função para calcular dias a partir da data
-                    function calculateDaysFromDate(dateStr) {
-                        var parts = dateStr.split('/');
-                        if (parts.length !== 3) return;
+                    // Função para calcular dias a partir da data/hora
+                    function calculateDaysFromDateTime(dateTimeStr) {
+                        var match = dateTimeStr.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
+                        if (!match) return false;
 
-                        var day = parseInt(parts[0], 10);
-                        var month = parseInt(parts[1], 10) - 1; // Mês começa em 0
-                        var year = parseInt(parts[2], 10);
+                        var day = parseInt(match[1], 10);
+                        var month = parseInt(match[2], 10) - 1; // Mês começa em 0
+                        var year = parseInt(match[3], 10);
+                        var hour = parseInt(match[4], 10);
+                        var minute = parseInt(match[5], 10);
 
-                        // Valida data
-                        if (isNaN(day) || isNaN(month) || isNaN(year)) return;
-                        if (day < 1 || day > 31 || month < 0 || month > 11 || year < 2020) return;
+                        if (isNaN(day) || isNaN(month) || isNaN(year) || isNaN(hour) || isNaN(minute)) return false;
+                        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
 
-                        var expirationDate = new Date(year, month, day, 23, 59, 59);
-                        var today = new Date();
-                        today.setHours(0, 0, 0, 0);
+                        var expirationDate = new Date(year, month, day, hour, minute, 0);
+                        if (
+                            expirationDate.getFullYear() !== year ||
+                            expirationDate.getMonth() !== month ||
+                            expirationDate.getDate() !== day ||
+                            expirationDate.getHours() !== hour ||
+                            expirationDate.getMinutes() !== minute
+                        ) {
+                            return false;
+                        }
 
-                        var diffTime = expirationDate - today;
+                        var now = new Date();
+                        var diffTime = expirationDate - now;
                         var diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-                        if (diffDays >= 1 && diffDays <= 365) {
-                            $('#duration_days').val(diffDays);
+                        if (diffTime > 0 && diffDays <= 365) {
+                            $('#duration_days').val(Math.max(1, diffDays));
+                            return true;
+                        } else if (diffTime <= 0) {
+                            alert('A data e hora de expiração deve ser futura!');
+                            $('#expiration_date').val('');
                         } else if (diffDays < 1) {
-                            alert('A data de expiração deve ser futura!');
                             $('#expiration_date').val('');
                         } else if (diffDays > 365) {
-                            alert('A data de expiração não pode ser maior que 365 dias!');
+                            alert('A data e hora de expiração não pode ser maior que 365 dias!');
                             $('#expiration_date').val('');
                         }
+
+                        return false;
                     }
 
-                    // Função para calcular data a partir dos dias
-                    function calculateDateFromDays(days) {
+                    // Função para calcular data/hora a partir dos dias
+                    function calculateDateTimeFromDays(days) {
                         var today = new Date();
                         var expirationDate = new Date(today.getTime() + (days * 24 * 60 * 60 * 1000));
 
                         var day = String(expirationDate.getDate()).padStart(2, '0');
                         var month = String(expirationDate.getMonth() + 1).padStart(2, '0');
                         var year = expirationDate.getFullYear();
+                        var hour = String(expirationDate.getHours()).padStart(2, '0');
+                        var minute = String(expirationDate.getMinutes()).padStart(2, '0');
 
-                        return day + '/' + month + '/' + year;
+                        return day + '/' + month + '/' + year + ' ' + hour + ':' + minute;
                     }
 
                     // Atualiza data quando dias mudam
                     $('#duration_days').on('change input', function () {
                         var days = parseInt($(this).val(), 10);
                         if (days >= 1 && days <= 365) {
-                            $('#expiration_date').val(calculateDateFromDays(days));
+                            $('#expiration_date').val(calculateDateTimeFromDays(days));
                         }
                     });
 
@@ -718,7 +816,7 @@ class LearnDash_Temporary_Enrollment
                     $('.ld-duration-btn').on('click', function () {
                         var days = $(this).data('days');
                         $('#duration_days').val(days);
-                        $('#expiration_date').val(calculateDateFromDays(days));
+                        $('#expiration_date').val(calculateDateTimeFromDays(days));
                     });
 
                     $('#ld-select-all-courses').on('click', function () {
@@ -730,7 +828,7 @@ class LearnDash_Temporary_Enrollment
                     });
 
                     // Inicializa com 1 dia
-                    $('#expiration_date').val(calculateDateFromDays(1));
+                    $('#expiration_date').val(calculateDateTimeFromDays(1));
 
                     $('#ld-temp-enrollment-form').on('submit', function (e) {
                         e.preventDefault();
@@ -742,6 +840,11 @@ class LearnDash_Temporary_Enrollment
 
                         if (!selectedCourseIds.length) {
                             $message.html('<div class="alert alert-danger">Selecione pelo menos um curso.</div>').show();
+                            return;
+                        }
+
+                        if (!calculateDaysFromDateTime($('#expiration_date').val())) {
+                            $message.html('<div class="alert alert-danger">Informe a expiração no formato dd/mm/aaaa HH:mm, usando hora em formato 24h.</div>').show();
                             return;
                         }
 
@@ -757,6 +860,7 @@ class LearnDash_Temporary_Enrollment
                                 user_emails: $('#user_emails').val(),
                                 course_ids: selectedCourseIds,
                                 duration_days: $('#duration_days').val(),
+                                expiration_date: $('#expiration_date').val(),
                                 observation: $('#observation').val()
                             },
                             success: function (response) {
@@ -777,7 +881,7 @@ class LearnDash_Temporary_Enrollment
 
                                     if (response.data.success_count > 0) {
                                         $form[0].reset();
-                                        $('#expiration_date').val(calculateDateFromDays(1));
+                                        $('#expiration_date').val(calculateDateTimeFromDays(1));
                                         setTimeout(function () {
                                             location.reload();
                                         }, 3000);
