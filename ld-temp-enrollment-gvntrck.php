@@ -354,11 +354,17 @@ class LearnDash_Temporary_Enrollment
      * Desmatricula usuário de um curso
      * 
      * @param int $enrollment_id ID do registro de matrícula
+     * @param string $status Status que será gravado após remover o acesso
      * @return bool
      */
-    public function unenroll_user($enrollment_id)
+    public function unenroll_user($enrollment_id, $status = 'expired')
     {
         global $wpdb;
+
+        $allowed_statuses = array('expired', 'unenrolled');
+        if (!in_array($status, $allowed_statuses, true)) {
+            $status = 'expired';
+        }
 
         $enrollment = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$this->table_name} WHERE id = %d",
@@ -377,7 +383,7 @@ class LearnDash_Temporary_Enrollment
         // Atualiza status
         $wpdb->update(
             $this->table_name,
-            array('status' => 'expired'),
+            array('status' => $status),
             array('id' => $enrollment_id),
             array('%s'),
             array('%d')
@@ -553,7 +559,7 @@ class LearnDash_Temporary_Enrollment
         }
 
         $enrollment_id = intval($_POST['enrollment_id']);
-        $result = $this->unenroll_user($enrollment_id);
+        $result = $this->unenroll_user($enrollment_id, 'unenrolled');
 
         if ($result) {
             wp_send_json_success(array('message' => 'Usuário desmatriculado com sucesso!'));
@@ -922,14 +928,49 @@ class LearnDash_Temporary_Enrollment
             'show_actions' => 'true'
         ), $atts);
 
-        $enrollments = $wpdb->get_results($wpdb->prepare(
-            "SELECT * FROM {$this->table_name} 
-            WHERE status = %s 
-            ORDER BY expiration_date ASC 
-            LIMIT %d",
-            $atts['status'],
-            $atts['limit']
-        ));
+        $current_time = current_time('mysql');
+        $status = sanitize_key($atts['status']);
+        $limit = max(1, intval($atts['limit']));
+        static $expiration_check_ran = false;
+
+        if (!$expiration_check_ran && in_array($status, array('active', 'expired'), true)) {
+            $this->check_expirations();
+            $expiration_check_ran = true;
+            $current_time = current_time('mysql');
+        }
+
+        if ($status === 'active') {
+            $enrollments = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM {$this->table_name} 
+                WHERE status = %s
+                AND expiration_date > %s
+                ORDER BY expiration_date ASC 
+                LIMIT %d",
+                'active',
+                $current_time,
+                $limit
+            ));
+        } elseif ($status === 'expired') {
+            $enrollments = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM {$this->table_name} 
+                WHERE status = %s
+                AND expiration_date <= %s
+                ORDER BY expiration_date DESC 
+                LIMIT %d",
+                'expired',
+                $current_time,
+                $limit
+            ));
+        } else {
+            $enrollments = $wpdb->get_results($wpdb->prepare(
+                "SELECT * FROM {$this->table_name} 
+                WHERE status = %s
+                ORDER BY expiration_date ASC 
+                LIMIT %d",
+                $status,
+                $limit
+            ));
+        }
 
         $show_actions = ($atts['show_actions'] === 'true' && current_user_can('manage_options'));
 
@@ -958,6 +999,11 @@ class LearnDash_Temporary_Enrollment
                 .status-expired {
                     background-color: #f8d7da;
                     color: #721c24;
+                }
+
+                .status-unenrolled {
+                    background-color: #e2e3e5;
+                    color: #383d41;
                 }
 
                 .time-remaining {
@@ -1024,7 +1070,7 @@ class LearnDash_Temporary_Enrollment
                                     </td>
                                     <td>
                                         <span class="badge status-badge status-<?php echo esc_attr($enrollment->status); ?>">
-                                            <?php echo esc_html(ucfirst($enrollment->status)); ?>
+                                            <?php echo esc_html($this->get_status_label($enrollment->status)); ?>
                                         </span>
                                     </td>
                                     <?php if ($show_actions): ?>
@@ -1124,6 +1170,23 @@ class LearnDash_Temporary_Enrollment
         }
 
         return !empty($parts) ? implode(', ', $parts) : 'Menos de 1 minuto';
+    }
+
+    /**
+     * Retorna o rótulo público do status da matrícula.
+     *
+     * @param string $status Status interno da matrícula.
+     * @return string
+     */
+    private function get_status_label($status)
+    {
+        $labels = array(
+            'active' => 'Ativa',
+            'expired' => 'Expirada',
+            'unenrolled' => 'Desmatriculada',
+        );
+
+        return isset($labels[$status]) ? $labels[$status] : ucfirst($status);
     }
 
     /**
